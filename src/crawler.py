@@ -98,8 +98,9 @@ class Crawler(object):
             'cookies': self.get_cookies(url)
         }
         r = requests.get(url, **request_args)
+        self.__last_requst_time = now
         if r is None or r.status_code != 200 or r.content is None:
-            return ''
+            return '<html></html>'
 
         content_hash = hashlib.md5(r.content).hexdigest()
         file_path = os.path.abspath(os.path.join(self.__data_dir, self.url_to_file_path(url, content_hash)))

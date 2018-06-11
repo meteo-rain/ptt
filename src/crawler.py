@@ -76,6 +76,10 @@ class Crawler(object):
         self.__last_requst_time = datetime.datetime.now()
     
     @abc.abstractmethod
+    def get_cookies(self, url):
+        return {}
+
+    @abc.abstractmethod
     def url_to_file_path(self, url, content_hash):
         return hashlib.md5('{0}{1}'.format(url, content_hash).encode('utf-8')).hexdigest() + '.html'
 
@@ -90,9 +94,12 @@ class Crawler(object):
         requst_timedelta = (now - self.__last_requst_time).microseconds
         if requst_timedelta < 500000: # 0.5s
             time.sleep(0.5 - requst_timedelta/1000000)
-        r = requests.get(url)
-        if r is None or r.status_code != 200:
-            return None
+        request_args = {
+            'cookies': self.get_cookies(url)
+        }
+        r = requests.get(url, **request_args)
+        if r is None or r.status_code != 200 or r.content is None:
+            return ''
 
         content_hash = hashlib.md5(r.content).hexdigest()
         file_path = os.path.abspath(os.path.join(self.__data_dir, self.url_to_file_path(url, content_hash)))
@@ -112,7 +119,12 @@ class Crawler(object):
         
         if restart:
             self.__session.query(FetchQueue).delete()
-            for entry_url in self.entry_points():
+            entry_points = self.entry_points()
+            if entry_points is None:
+                return
+            if isinstance(entry_points, str):
+                entry_points = [entry_points]
+            for entry_url in entry_points:
                 self.__session.add(FetchQueue(url=entry_url))
             self.__session.commit()
         
@@ -142,7 +154,14 @@ class PTTWebCrawler(Crawler):
     base_url = 'https://www.ptt.cc'
     hotboard_url = '{0}/bbs/hotboards.html'.format(base_url)
 
+    def __init__(self):
+        super().__init__()
+        
+    def get_cookies(self, url):
+        return { 'over18': '1'}
+
     def entry_points(self):
+        return "https://www.ptt.cc/bbs/sex/M.1486741384.A.902.html"
         hotboard_page = self.request_page(self.hotboard_url)
         doc = pq(hotboard_page)
         ret = []
@@ -157,7 +176,18 @@ class PTTWebCrawler(Crawler):
         dirname = dirname[0] if len(dirname) > 1 else 'common'
         return os.path.join(dirname, hashlib.md5('{0}{1}'.format(url, content_hash).encode('utf-8')).hexdigest() + '.html')
     
+    def handle_over18(self, page):
+        doc = pq(page)
+        for input_tag in doc('form[action=\\/ask\\/over18] > input').items():
+            post_data = {'yes': 'yes'}
+            post_data[input_tag.attr('name')] = input_tag.attr('value')
+            r = requests.post('{0}/ask/over18'.format(self.base_url), params=post_data)
+            if r is not None and r.status_code == 200 and r.content is not None:
+                return r.content
+        return page
+
     def parse_following_links(self, page):
+        #page = self.handle_over18(page)
         doc = pq(page)
         ret = []
         for page_tag in doc('div.btn-group-paging > a.btn').items():

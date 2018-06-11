@@ -161,7 +161,6 @@ class PTTWebCrawler(Crawler):
         return { 'over18': '1'}
 
     def entry_points(self):
-        return "https://www.ptt.cc/bbs/sex/M.1486741384.A.902.html"
         hotboard_page = self.request_page(self.hotboard_url)
         doc = pq(hotboard_page)
         ret = []
@@ -176,18 +175,7 @@ class PTTWebCrawler(Crawler):
         dirname = dirname[0] if len(dirname) > 1 else 'common'
         return os.path.join(dirname, hashlib.md5('{0}{1}'.format(url, content_hash).encode('utf-8')).hexdigest() + '.html')
     
-    def handle_over18(self, page):
-        doc = pq(page)
-        for input_tag in doc('form[action=\\/ask\\/over18] > input').items():
-            post_data = {'yes': 'yes'}
-            post_data[input_tag.attr('name')] = input_tag.attr('value')
-            r = requests.post('{0}/ask/over18'.format(self.base_url), params=post_data)
-            if r is not None and r.status_code == 200 and r.content is not None:
-                return r.content
-        return page
-
     def parse_following_links(self, page):
-        #page = self.handle_over18(page)
         doc = pq(page)
         ret = []
         for page_tag in doc('div.btn-group-paging > a.btn').items():

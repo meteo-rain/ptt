@@ -156,7 +156,7 @@ class PTTWebCrawler(Crawler):
         return os.path.join(dirname, hashlib.md5('{0}{1}'.format(url, content_hash).encode('utf-8')).hexdigest() + '.html')
     
     def parse_following_links(self, url, page):
-        if '/index' not in url or not url.endswith('hotboards.html'):
+        if '/index' not in url and not url.endswith('hotboards.html'):
             return []
         doc = pq(page)
         ret = []

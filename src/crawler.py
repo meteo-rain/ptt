@@ -110,19 +110,15 @@ class Crawler(object):
                 if query_result is None:
                     break
                 url = query_result.url            
-                now = datetime.datetime.now()
-                print('[{0}] Fetching... {1}'.format(now.strftime("%Y-%m-%d %H:%M:%S.%f"),url))
                 page = self.request_page(url)
-                now = datetime.datetime.now()
-                print('[{0}] Parsing... {1}'.format(now.strftime("%Y-%m-%d %H:%M:%S.%f"),url))
                 links = self.parse_following_links(url, page)
                 if links and len(links) > 0:
                     for link in links:
                         if self.__session_fetch_queue.query(FetchQueue).filter_by(url=link).first() is None:
                             self.__session_fetch_queue.add(FetchQueue(url=link))
-                query_result.mtime = datetime.datetime.now()
-                self.__session_fetch_queue.commit()
                 now = datetime.datetime.now()
+                query_result.mtime = now
+                self.__session_fetch_queue.commit()
                 print('[{0}] Parsing Done! {1}'.format(now.strftime("%Y-%m-%d %H:%M:%S.%f"),url))
             restart = False
     
@@ -160,7 +156,7 @@ class PTTWebCrawler(Crawler):
         return os.path.join(dirname, hashlib.md5('{0}{1}'.format(url, content_hash).encode('utf-8')).hexdigest() + '.html')
     
     def parse_following_links(self, url, page):
-        if '/index' in url:
+        if '/index' not in url or not url.endswith('hotboards.html'):
             return []
         doc = pq(page)
         ret = []

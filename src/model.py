@@ -20,7 +20,4 @@ class FetchQueue(Base):
     url = Column(String, primary_key=True)
     mtime = Column(DateTime, index=True)
 
-def create_tables(engine):
-    Base.metadata.create_all(engine)
-
     

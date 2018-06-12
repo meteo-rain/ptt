@@ -5,8 +5,10 @@ import abc
 current_dir = os.path.abspath(os.path.dirname(__file__))
 parent_dir = os.path.abspath(os.path.join(current_dir, os.pardir))
 
-from model import Page, FetchQueue, create_tables
+from model import Page, FetchQueue
 from pyquery import PyQuery as pq
+
+last_requst_time = datetime.datetime.now()
 
 class Crawler(object):
     __metaclass__ = abc.ABCMeta
@@ -33,16 +35,16 @@ class Crawler(object):
         self.__engine_crawler = create_engine('sqlite:///{}'.format(self.__db_crawler_path), echo=False)
         SessionCrawler = sessionmaker()
         SessionCrawler.configure(bind=self.__engine_crawler)
-        create_tables(self.__engine_crawler)
+        Page.metadata.create_all(self.__engine_crawler)
         self.__session_crawler = SessionCrawler()
 
         self.__engine_fetch_queue = create_engine('sqlite:///{}'.format(self.__db_fetch_queue_path), echo=False)
         SessionFetchQueue = sessionmaker()
         SessionFetchQueue.configure(bind=self.__engine_fetch_queue)
-        create_tables(self.__engine_fetch_queue)
+        FetchQueue.metadata.create_all(self.__engine_fetch_queue)
         self.__session_fetch_queue = SessionFetchQueue()
 
-        self.__last_requst_time = datetime.datetime.now()
+        #self.__last_requst_time = datetime.datetime.now()
     
     @abc.abstractmethod
     def get_cookies(self, url):
@@ -53,6 +55,7 @@ class Crawler(object):
         return hashlib.md5('{0}{1}'.format(url, content_hash).encode('utf-8')).hexdigest() + '.html'
 
     def request_page(self, url):
+        global last_requst_time
         import hashlib
         from sqlalchemy import desc
         query_result = self.__session_crawler.query(Page).filter_by(url=url).order_by(desc(Page.mtime)).first()
@@ -60,7 +63,7 @@ class Crawler(object):
             return open(os.path.join(self.__data_dir, query_result.file_path), 'rb').read()
         now = datetime.datetime.now()
         print('[{0}] Request {1}'.format(now.strftime("%Y-%m-%d %H:%M:%S.%f"),url))
-        requst_timedelta = (now - self.__last_requst_time).microseconds
+        requst_timedelta = (now - last_requst_time).microseconds
         if requst_timedelta < 500000: # 0.5s
             time.sleep(0.5 - requst_timedelta/1000000)
         request_args = {
@@ -68,7 +71,8 @@ class Crawler(object):
         }
         r = requests.get(url, **request_args)
         #print('[{0}] Receive {1}'.format(datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f"),url))
-        self.__last_requst_time = now
+        
+        last_requst_time = now
         if r is None or r.status_code != 200 or r.content is None:
             return '<html></html>'
 
@@ -83,35 +87,44 @@ class Crawler(object):
         return r.content        
 
     def start(self, restart=False):
-        if not restart:
-            query_result = self.__session_fetch_queue.query(FetchQueue).filter_by(mtime=None).first()
-            if query_result is None:
-                restart = True
-        
-        if restart:
-            self.__session_fetch_queue.query(FetchQueue).delete()
-            entry_points = self.entry_points()
-            if entry_points is None:
-                return
-            if isinstance(entry_points, str):
-                entry_points = [entry_points]
-            for entry_url in entry_points:
-                self.__session_fetch_queue.add(FetchQueue(url=entry_url))
-            self.__session_fetch_queue.commit()
-        
         while True:
-            query_result = self.__session_fetch_queue.query(FetchQueue).filter_by(mtime=None).first()
-            if query_result is None:
-                break
-            url = query_result.url            
-            page = self.request_page(url)
-            links = self.parse_following_links(url, page)
-            if links and len(links) > 0:
-                for link in links:
-                    if self.__session_fetch_queue.query(FetchQueue).filter_by(url=link).first() is None:
-                        self.__session_fetch_queue.add(FetchQueue(url=link))
-            query_result.mtime = datetime.datetime.now()
-            self.__session_fetch_queue.commit()
+            if not restart:
+                query_result = self.__session_fetch_queue.query(FetchQueue).filter_by(mtime=None).first()
+                if query_result is None:
+                    restart = True
+            
+            if restart:
+                self.__session_fetch_queue.query(FetchQueue).delete()
+                entry_points = self.entry_points()
+                if entry_points is None:
+                    restart = False
+                    continue
+                if isinstance(entry_points, str):
+                    entry_points = [entry_points]
+                for entry_url in entry_points:
+                    self.__session_fetch_queue.add(FetchQueue(url=entry_url))
+                self.__session_fetch_queue.commit()
+            
+            while True:
+                query_result = self.__session_fetch_queue.query(FetchQueue).filter_by(mtime=None).first()
+                if query_result is None:
+                    break
+                url = query_result.url            
+                now = datetime.datetime.now()
+                print('[{0}] Fetching... {1}'.format(now.strftime("%Y-%m-%d %H:%M:%S.%f"),url))
+                page = self.request_page(url)
+                now = datetime.datetime.now()
+                print('[{0}] Parsing... {1}'.format(now.strftime("%Y-%m-%d %H:%M:%S.%f"),url))
+                links = self.parse_following_links(url, page)
+                if links and len(links) > 0:
+                    for link in links:
+                        if self.__session_fetch_queue.query(FetchQueue).filter_by(url=link).first() is None:
+                            self.__session_fetch_queue.add(FetchQueue(url=link))
+                query_result.mtime = datetime.datetime.now()
+                self.__session_fetch_queue.commit()
+                now = datetime.datetime.now()
+                print('[{0}] Parsing Done! {1}'.format(now.strftime("%Y-%m-%d %H:%M:%S.%f"),url))
+            restart = False
     
     @abc.abstractmethod
     def entry_points(self):
@@ -162,7 +175,10 @@ class PTTWebCrawler(Crawler):
         return ret
 
 if __name__ == '__main__':
-    pttWebCrawler = PTTWebCrawler()
-    while True:
-        pttWebCrawler.start()
+    PTTWebCrawler().start()
+    
+    
+    
+    
+    
     
